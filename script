@@ -1787,7 +1787,7 @@ local function buildKeySystem(onSuccess)
 		BackgroundColor3 = Theme.Element,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
-		Text = "Telegram разработчика — " .. TG_NAME,
+		Text = "КЛЮЧ ТУТ - " .. TG_NAME,
 		Font = Enum.Font.GothamMedium,
 		TextSize = 11,
 		TextColor3 = Theme.Telegram,
