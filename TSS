@@ -1,0 +1,359 @@
+--[[
+    Orb ESP для The Space Simulator
+    - Красивое UI с тумблером
+    - Красная кнопка Unload (полная выгрузка)
+    - Оптимизированный поиск
+    - Подсветка ВСЕХ объектов с "orb" в имени
+]]
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+-- ========== НАСТРОЙКИ ==========
+local CONFIG = {
+    ScanInterval = 1.5,
+    FillColor = Color3.fromRGB(0, 200, 255),
+    OutlineColor = Color3.fromRGB(255, 255, 255),
+    FillTransparency = 0.6,
+    OutlineTransparency = 0,
+    Keybind = Enum.KeyCode.RightShift,
+}
+
+-- ========== ЗАЩИТА ОТ ДУБЛИРОВАНИЯ ==========
+if _G.OrbESP_Loaded and _G.OrbESP_Cleanup then
+    pcall(_G.OrbESP_Cleanup)
+end
+_G.OrbESP_Loaded = true
+
+-- ========== СОСТОЯНИЕ ==========
+local State = {
+    Enabled = true,
+    Highlights = {},
+    Connections = {},
+    Running = true,
+}
+
+-- ========== УТИЛИТЫ ==========
+local function isOrbObject(obj)
+    if not obj or not obj.Parent then return false end
+    if not (obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("MeshPart")) then
+        return false
+    end
+    return string.find(string.lower(obj.Name), "orb") ~= nil
+end
+
+local function createHighlight(obj)
+    if State.Highlights[obj] then return end
+    local hl = Instance.new("Highlight")
+    hl.Name = "OrbESP_HL"
+    hl.Adornee = obj
+    hl.FillColor = CONFIG.FillColor
+    hl.OutlineColor = CONFIG.OutlineColor
+    hl.FillTransparency = CONFIG.FillTransparency
+    hl.OutlineTransparency = CONFIG.OutlineTransparency
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = CoreGui
+    State.Highlights[obj] = hl
+end
+
+local function removeHighlight(obj)
+    local hl = State.Highlights[obj]
+    if hl then
+        hl:Destroy()
+        State.Highlights[obj] = nil
+    end
+end
+
+local function clearAllHighlights()
+    for _, hl in pairs(State.Highlights) do
+        hl:Destroy()
+    end
+    State.Highlights = {}
+end
+
+local function scan()
+    if not State.Enabled or not State.Running then return end
+    for obj, _ in pairs(State.Highlights) do
+        if not obj.Parent or not isOrbObject(obj) then
+            removeHighlight(obj)
+        end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if isOrbObject(obj) and not State.Highlights[obj] then
+            createHighlight(obj)
+        end
+    end
+end
+
+-- ========== ФУНКЦИЯ ВЫГРУЗКИ ==========
+local function unloadESP()
+    State.Running = false
+    State.Enabled = false
+    
+    -- Удаляем все подсветки
+    clearAllHighlights()
+    
+    -- Отключаем соединения
+    for _, c in ipairs(State.Connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    State.Connections = {}
+    
+    -- Удаляем UI
+    if _G.OrbESP_UI then
+        pcall(function() _G.OrbESP_UI:Destroy() end)
+        _G.OrbESP_UI = nil
+    end
+    
+    _G.OrbESP_Loaded = false
+    print("[OrbESP] Выгружено.")
+end
+_G.OrbESP_Cleanup = unloadESP
+
+-- ========== СОЗДАНИЕ UI ==========
+local function createUI()
+    local old = CoreGui:FindFirstChild("OrbESP_UI")
+    if old then old:Destroy() end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "OrbESP_UI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 999
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = CoreGui
+    _G.OrbESP_UI = screenGui
+    
+    -- Главный фрейм (увеличен по высоте для кнопки Unload)
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(0, 260, 0, 180)
+    main.Position = UDim2.new(0, 20, 0, 20)
+    main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+    main.BackgroundTransparency = 0.1
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Draggable = true
+    main.ClipsDescendants = false
+    main.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 12)
+    mainCorner.Parent = main
+    
+    local mainStroke = Instance.new("UIStroke")
+    mainStroke.Color = Color3.fromRGB(0, 200, 255)
+    mainStroke.Thickness = 1.5
+    mainStroke.Transparency = 0.3
+    mainStroke.Parent = main
+    
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 35)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 40)),
+    })
+    grad.Rotation = 45
+    grad.Parent = main
+    
+    -- Заголовок
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 28)
+    title.Position = UDim2.new(0, 10, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Text = "✦ Orb ESP"
+    title.TextColor3 = Color3.fromRGB(0, 220, 255)
+    title.TextSize = 18
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = main
+    
+    -- Счётчик
+    local counter = Instance.new("TextLabel")
+    counter.Name = "Counter"
+    counter.Size = UDim2.new(1, -20, 0, 16)
+    counter.Position = UDim2.new(0, 10, 0, 34)
+    counter.BackgroundTransparency = 1
+    counter.Text = "Найдено: 0 объектов"
+    counter.TextColor3 = Color3.fromRGB(160, 160, 180)
+    counter.TextSize = 12
+    counter.Font = Enum.Font.Gotham
+    counter.TextXAlignment = Enum.TextXAlignment.Left
+    counter.Parent = main
+    
+    -- Разделитель 1
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, -20, 0, 1)
+    divider.Position = UDim2.new(0, 10, 0, 56)
+    divider.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    divider.BorderSizePixel = 0
+    divider.Parent = main
+    
+    -- Текст "Подсветка"
+    local espLabel = Instance.new("TextLabel")
+    espLabel.Size = UDim2.new(0, 100, 0, 40)
+    espLabel.Position = UDim2.new(0, 14, 0, 64)
+    espLabel.BackgroundTransparency = 1
+    espLabel.Text = "Подсветка"
+    espLabel.TextColor3 = Color3.fromRGB(230, 230, 240)
+    espLabel.TextSize = 14
+    espLabel.Font = Enum.Font.GothamSemibold
+    espLabel.TextXAlignment = Enum.TextXAlignment.Left
+    espLabel.Parent = main
+    
+    -- ===== ТУМБЛЕР =====
+    local toggle = Instance.new("Frame")
+    toggle.Name = "Toggle"
+    toggle.Size = UDim2.new(0, 50, 0, 26)
+    toggle.Position = UDim2.new(1, -64, 0, 71)
+    toggle.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+    toggle.BorderSizePixel = 0
+    toggle.Parent = main
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggle
+    
+    local knob = Instance.new("Frame")
+    knob.Name = "Knob"
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    knob.Position = UDim2.new(1, -23, 0, 3)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggle
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(1, 0, 1, 0)
+    toggleBtn.BackgroundTransparency = 1
+    toggleBtn.Text = ""
+    toggleBtn.Parent = toggle
+    
+    local function setToggle(on, animate)
+        if not main.Parent then return end
+        local dur = animate and TweenInfo.new(0.2, Enum.EasingStyle.Quad) or TweenInfo.new(0)
+        if on then
+            TweenService:Create(toggle, dur, {BackgroundColor3 = Color3.fromRGB(0, 200, 255)}):Play()
+            TweenService:Create(knob, dur, {Position = UDim2.new(1, -23, 0, 3)}):Play()
+        else
+            TweenService:Create(toggle, dur, {BackgroundColor3 = Color3.fromRGB(60, 60, 75)}):Play()
+            TweenService:Create(knob, dur, {Position = UDim2.new(0, 3, 0, 3)}):Play()
+        end
+    end
+    
+    toggleBtn.MouseButton1Click:Connect(function()
+        if not State.Running then return end
+        State.Enabled = not State.Enabled
+        setToggle(State.Enabled, true)
+        if State.Enabled then
+            scan()
+        else
+            clearAllHighlights()
+            counter.Text = "Найдено: 0 объектов"
+        end
+    end)
+    
+    -- ===== РАЗДЕЛИТЕЛЬ 2 =====
+    local divider2 = Instance.new("Frame")
+    divider2.Size = UDim2.new(1, -20, 0, 1)
+    divider2.Position = UDim2.new(0, 10, 0, 110)
+    divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    divider2.BorderSizePixel = 0
+    divider2.Parent = main
+    
+    -- ===== КНОПКА UNLOAD (КРАСНАЯ) =====
+    local unloadBtn = Instance.new("TextButton")
+    unloadBtn.Name = "UnloadBtn"
+    unloadBtn.Size = UDim2.new(1, -20, 0, 32)
+    unloadBtn.Position = UDim2.new(0, 10, 0, 118)
+    unloadBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 50)
+    unloadBtn.BorderSizePixel = 0
+    unloadBtn.Text = "✕  Unload ESP"
+    unloadBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    unloadBtn.TextSize = 14
+    unloadBtn.Font = Enum.Font.GothamBold
+    unloadBtn.AutoButtonColor = false
+    unloadBtn.Parent = main
+    
+    local unloadCorner = Instance.new("UICorner")
+    unloadCorner.CornerRadius = UDim.new(0, 8)
+    unloadCorner.Parent = unloadBtn
+    
+    local unloadStroke = Instance.new("UIStroke")
+    unloadStroke.Color = Color3.fromRGB(255, 100, 110)
+    unloadStroke.Thickness = 1
+    unloadStroke.Transparency = 0.4
+    unloadStroke.Parent = unloadBtn
+    
+    -- Ховер-эффект
+    unloadBtn.MouseEnter:Connect(function()
+        if not State.Running then return end
+        TweenService:Create(unloadBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(230, 55, 65)
+        }):Play()
+    end)
+    unloadBtn.MouseLeave:Connect(function()
+        if not State.Running then return end
+        TweenService:Create(unloadBtn, TweenInfo.new(0.15), {
+            BackgroundColor3 = Color3.fromRGB(200, 40, 50)
+        }):Play()
+    end)
+    
+    -- Клик по кнопке — полная выгрузка
+    unloadBtn.MouseButton1Click:Connect(function()
+        unloadESP()
+    end)
+    
+    -- ===== ПОДСКАЗКА =====
+    local hint = Instance.new("TextLabel")
+    hint.Size = UDim2.new(1, -20, 0, 14)
+    hint.Position = UDim2.new(0, 10, 1, -18)
+    hint.BackgroundTransparency = 1
+    hint.Text = "[" .. CONFIG.Keybind.Name .. "] — скрыть/показать UI"
+    hint.TextColor3 = Color3.fromRGB(120, 120, 140)
+    hint.TextSize = 10
+    hint.Font = Enum.Font.Gotham
+    hint.TextXAlignment = Enum.TextXAlignment.Left
+    hint.Parent = main
+    
+    -- ===== СЧЁТЧИК =====
+    task.spawn(function()
+        while State.Running and screenGui.Parent do
+            local count = 0
+            for _ in pairs(State.Highlights) do count = count + 1 end
+            if counter and counter.Parent then
+                counter.Text = "Найдено: " .. count .. " объектов"
+            end
+            task.wait(0.5)
+        end
+    end)
+    
+    -- ===== КЛАВИША СКРЫТИЯ =====
+    local keyConn = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == CONFIG.Keybind and main.Parent then
+            main.Visible = not main.Visible
+        end
+    end)
+    table.insert(State.Connections, keyConn)
+end
+
+-- ========== ЗАПУСК ==========
+createUI()
+scan()
+
+-- Цикл сканирования
+task.spawn(function()
+    while State.Running do
+        task.wait(CONFIG.ScanInterval)
+        pcall(scan)
+    end
+end)
+
+print("[OrbESP] Загружено.")
